@@ -315,8 +315,8 @@ public:
             crackleLPFL -= crackleLPFL >> 3;
             crackleLPFR -= crackleLPFR >> 3;
 
-            wetL += crackleLPFL;
-            wetR += crackleLPFR;
+            wetL += crackleLPFL >> 1;
+            wetR += crackleLPFR >> 1;
         }
 
         // Protect wet path before mixing.
