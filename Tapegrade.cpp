@@ -19,6 +19,7 @@
 // - cassette tone shaping
 // - soft saturation
 // - hiss/crackle degradation
+// - dynamic tape condition morphing
 // - low CPU fixed-point DSP
 //
 // Designed for:
@@ -55,6 +56,9 @@ public:
     int32_t toneL = 0;
     int32_t toneR = 0;
 
+    // Tape-condition modulation smoothing.
+    int32_t tapeTypeCV = 0;
+
     //
     // Additional DSP state.
     //
@@ -64,7 +68,7 @@ public:
 
     int32_t hissLPFL = 0;
     int32_t hissLPFR = 0;
-    
+
     // Cheap xorshift RNG.
     inline uint32_t FastRandom()
     {
@@ -96,9 +100,6 @@ public:
     }
 
     // Cheap tape-style soft saturation.
-    //
-    // Adds compression-like behaviour
-    // without expensive nonlinear DSP.
     inline int32_t SoftClip(int32_t x)
     {
         x = x + (x >> 1);
@@ -111,8 +112,6 @@ public:
     }
 
     // Linear interpolated delay read.
-    //
-    // Fractional precision: 8 bits.
     inline int32_t ReadDelayInterpolated(int32_t readPos)
     {
         int32_t indexA = (readPos >> 8) & BUFFER_MASK;
@@ -130,41 +129,77 @@ public:
     {
         // Controls.
         int32_t mix = KnobVal(Knob::Main);
-        int32_t depth = KnobVal(Knob::X);
-        int32_t instability = KnobVal(Knob::Y);
 
-        // Stereo input handling.
-        //
-        // If Audio2 disconnected:
-        // mono input duplicated internally.
+        int32_t depth =
+            KnobVal(Knob::X) +
+            (Connected(Input::CV1) ? (CVIn1() >> 1) : 0);
+
+        int32_t instability =
+            KnobVal(Knob::Y) +
+            (Connected(Input::CV2) ? (CVIn2() >> 1) : 0);
+
+        // Clamp controls.
+        if (depth < 0) depth = 0;
+        if (depth > 4095) depth = 4095;
+
+        if (instability < 0) instability = 0;
+        if (instability > 4095) instability = 4095;
+
+        // Mono audio input.
         int32_t inputL = AudioIn1();
-        int32_t inputR = Connected(Input::Audio2)
-            ? AudioIn2()
-            : inputL;
+        int32_t inputR = inputL;
 
         // Tape saturation.
         inputL = SoftClip(inputL);
-        inputR = SoftClip(inputR);
+        inputR = inputL;
 
-        // Store summed mono signal into tape path.
+        // Audio-rate tape-condition modulation.
         //
-        // Tape machines naturally collapse
-        // some stereo width internally.
-        int32_t tapeInput = (inputL + inputR) >> 1;
+        // Audio 2 dynamically morphs tape wear.
+        int32_t tapeCV = AudioIn2();
 
-        delayBuffer[writePos] = tapeInput;
+        tapeTypeCV += (tapeCV - tapeTypeCV) >> 7;
 
-        // External transport modulation.
-        int32_t externalMod = 0;
+        // Base tape condition from switch.
+        int32_t tapeType = 0;
 
-        if (Connected(Input::CV2))
+        switch (SwitchVal())
         {
-            externalMod = CVIn2() >> 2;
+            case Switch::Up:
+                tapeType = 0;
+                break;
+
+            case Switch::Middle:
+                tapeType = 2048;
+                break;
+
+            case Switch::Down:
+                tapeType = 4095;
+                break;
         }
 
-        // Random wow drift.
+        // Apply Audio2 modulation.
+        tapeType += tapeTypeCV >> 1;
+
+        if (tapeType < 0) tapeType = 0;
+        if (tapeType > 4095) tapeType = 4095;
+
+        // Dynamic tape darkness.
         //
-        // Updated slowly for smooth motion.
+        // Higher tape wear = darker sound.
+        int32_t toneShift =
+            4 + (tapeType >> 11);
+
+        // Nonlinear modulation depth scaling.
+        int32_t modeDepth = (depth * depth) >> 12;
+
+        // Older tapes become less stable.
+        modeDepth += tapeType >> 3;
+
+        // Mono tape input.
+        delayBuffer[writePos] = inputL;
+
+        // Random wow drift.
         if ((writePos & 63) == 0)
         {
             wowL += ((int32_t)(FastRandom() & 31) - 15);
@@ -181,49 +216,14 @@ public:
         int32_t flutterL = Triangle(flutterPhaseL);
         int32_t flutterR = Triangle(flutterPhaseR);
 
-        // Tape condition settings.
-        int32_t toneShift = 5;
-
-        bool oldMode = false;
-        bool damagedMode = false;
-
-        // Nonlinear modulation depth scaling.
-        //
-        // Gives finer control at low settings.
-        int32_t modeDepth = (depth * depth) >> 12;
-
-        switch (SwitchVal())
-        {
-            case Switch::Up:
-                toneShift = 4;
-                break;
-
-            case Switch::Middle:
-                toneShift = 5;
-                modeDepth += 200;
-                oldMode = true;
-                break;
-
-            case Switch::Down:
-                toneShift = 6;
-                modeDepth += 500;
-                damagedMode = true;
-                break;
-        }
-
         // Combined modulation.
         int32_t modL = wowL + (flutterL << 2);
         int32_t modR = wowR + (flutterR << 2);
-
-        modL += externalMod;
-        modR -= externalMod;
 
         modL = (modL * modeDepth) >> 12;
         modR = (modR * modeDepth) >> 12;
 
         // Base tape delay.
-        //
-        // Stored in 8-bit fractional format.
         int32_t baseDelay = 1400 << 8;
 
         // Fractional modulated read positions.
@@ -238,88 +238,74 @@ public:
         int32_t wetR = ReadDelayInterpolated(readR);
 
         // Tone shaping.
-        //
-        // Older tape becomes darker.
         toneL += (wetL - toneL) >> toneShift;
         toneR += (wetR - toneR) >> toneShift;
 
         wetL = toneL;
         wetR = toneR;
 
-        // Old cassette mode:
-        // subtle filtered hiss.
-        if (oldMode)
+        //
+        // Continuous degradation scaling.
+        //
+
+        // Hiss amount.
+        int32_t hissAmount = tapeType >> 5;
+
+        // Crackle only appears on heavily damaged tape.
+        int32_t crackleAmount =
+            (tapeType > 2048)
+                ? (tapeType - 2048)
+                : 0;
+
+        //
+        // Tape hiss.
+        //
+
+        int32_t noiseL =
+            ((int32_t)(FastRandom() & 255) - 128);
+
+        int32_t noiseR =
+            ((int32_t)(FastRandom() & 255) - 128);
+
+        hissLPFL += (noiseL - hissLPFL) >> 4;
+        hissLPFR += (noiseR - hissLPFR) >> 4;
+
+        int32_t hissL = (noiseL - hissLPFL);
+        int32_t hissR = (noiseR - hissLPFR);
+
+        wetL += (hissL * hissAmount) >> 8;
+        wetR += (hissR * hissAmount) >> 8;
+
+        //
+        // Crackle impulses.
+        //
+
+        if (crackleAmount > 0)
         {
-            // Generate white noise.
-            int32_t noiseL =
-                ((int32_t)(FastRandom() & 127) - 64);
+            int32_t crackleDensity =
+                4096 - crackleAmount;
 
-            int32_t noiseR =
-                ((int32_t)(FastRandom() & 127) - 64);
-
-            // Low-pass memory for high-pass filter.
-            //
-            // Removes low frequencies from hiss
-            // so noise feels more tape-like.
-            hissLPFL += (noiseL - hissLPFL) >> 4;
-            hissLPFR += (noiseR - hissLPFR) >> 4;
-
-            // High-passed hiss.
-            int32_t hissL = (noiseL - hissLPFL) >> 2;
-            int32_t hissR = (noiseR - hissLPFR) >> 2;
-
-            wetL += hissL;
-            wetR += hissR;
-        }
-
-        // Damaged cassette mode:
-        // louder hiss + filtered crackle.
-        if (damagedMode)
-        {
-            // Brighter broadband hiss.
-            int32_t noiseL =
-                ((int32_t)(FastRandom() & 255) - 128);
-
-            int32_t noiseR =
-                ((int32_t)(FastRandom() & 255) - 128);
-
-            // High-pass shaping for realistic tape hiss.
-            hissLPFL += (noiseL - hissLPFL) >> 4;
-            hissLPFR += (noiseR - hissLPFR) >> 4;
-
-            int32_t hissL = (noiseL - hissLPFL) >> 1;
-            int32_t hissR = (noiseR - hissLPFR) >> 1;
-
-            wetL += hissL;
-            wetR += hissR;
-
-            // Crackle excitation impulses.
-            //
-            // Instead of single-sample digital clicks,
-            // we excite short decaying bursts.
-            if ((FastRandom() & 2047) == 0)
+            if ((FastRandom() & crackleDensity) == 0)
             {
                 crackleLPFL +=
                     (((int32_t)(FastRandom() & 255) - 128) << 2);
             }
 
-            if ((FastRandom() & 2047) == 0)
+            if ((FastRandom() & crackleDensity) == 0)
             {
                 crackleLPFR +=
                     (((int32_t)(FastRandom() & 255) - 128) << 2);
             }
-
-            // Low-pass decay filter.
-            //
-            // Produces softer analog-style crackle.
-            crackleLPFL -= crackleLPFL >> 4;
-            crackleLPFR -= crackleLPFR >> 4;
-
-            wetL += crackleLPFL >> 1;
-            wetR += crackleLPFR >> 1;
         }
 
-        // Protect wet path before mixing.
+        // Crackle decay.
+        crackleLPFL -= crackleLPFL >> 4;
+        crackleLPFR -= crackleLPFR >> 4;
+
+        wetL += (crackleLPFL * crackleAmount) >> 13;
+        wetR += (crackleLPFR * crackleAmount) >> 13;
+
+        // Protect wet path.
         wetL = Clamp2048(wetL);
         wetR = Clamp2048(wetR);
 
@@ -340,17 +326,11 @@ public:
         AudioOut2(outR);
 
         // LED feedback.
-        //
-        // 0 = left modulation
-        // 1 = instability
-        // 2 = right modulation
-        // 3 = mix
-        // 4 = depth
         LedBrightness(0, (modL + 2048) & 4095);
         LedBrightness(1, instability);
         LedBrightness(2, (modR + 2048) & 4095);
         LedBrightness(3, mix);
-        LedBrightness(4, depth);
+        LedBrightness(4, tapeType);
 
         // Advance circular buffer.
         writePos++;
