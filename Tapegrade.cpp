@@ -198,8 +198,9 @@ public:
             4 + (tapeType >> 11);
 
         // Nonlinear modulation depth scaling.
-        int32_t modeDepth = (depth * depth) >> 12;
-
+        int32_t modeDepth =
+            ((depth * depth) >> 11) + (depth >> 1);
+        
         // Older tapes become less stable.
         modeDepth += tapeType >> 4;
 
@@ -216,17 +217,46 @@ public:
             wowR -= wowR >> 7;
         }
 
+        // Instability scaling.
+        //
+        // Y now affects:
+        // - flutter speed
+        // - flutter depth
+        // - wow amount
+        // - stereo drift
+
+        int32_t instabilityDepth =
+            512 + (instability >> 1);
+
         // Flutter oscillator speed.
-        flutterPhaseL += 4000 + (instability << 1);
-        flutterPhaseR += 4300 + (instability << 1);
+        flutterPhaseL += 2500 + (instability << 2);
+        flutterPhaseR += 2700 + (instability << 2);
 
         int32_t flutterL = Triangle(flutterPhaseL);
         int32_t flutterR = Triangle(flutterPhaseR);
 
-        // Combined modulation.
-        int32_t modL = wowL + (flutterL << 2);
-        int32_t modR = wowR + (flutterR << 2);
+        // Scale flutter by instability.
+        flutterL = (flutterL * instabilityDepth) >> 10;
+        flutterR = (flutterR * instabilityDepth) >> 10;
 
+        // Scale wow by instability too.
+        int32_t wowScale =
+            512 + (instability >> 2);
+
+        int32_t wowModL =
+            (wowL * wowScale) >> 9;
+
+        int32_t wowModR =
+            (wowR * wowScale) >> 9;
+
+        // Combined modulation.
+        int32_t modL =
+            wowModL + (flutterL << 2);
+
+        int32_t modR =
+            wowModR + (flutterR << 2);
+
+        // Final modulation scaling.
         modL = (modL * modeDepth) >> 12;
         modR = (modR * modeDepth) >> 12;
 
@@ -235,10 +265,10 @@ public:
 
         // Fractional modulated read positions.
         int32_t readL =
-            ((writePos << 8) - baseDelay - (modL << 3));
+            ((writePos << 8) - baseDelay - (modL << 4));
 
         int32_t readR =
-            ((writePos << 8) - baseDelay - (modR << 3));
+            ((writePos << 8) - baseDelay - (modR << 4));
 
         // Interpolated reads.
         int32_t wetL = ReadDelayInterpolated(readL);
@@ -256,7 +286,7 @@ public:
         //
 
         // Hiss amount.
-        int32_t hissAmount = tapeType >> 5;
+        int32_t hissAmount = tapeType >> 6;
 
         // Crackle only appears on heavily damaged tape.
         int32_t crackleAmount =
@@ -290,7 +320,9 @@ public:
         if (crackleAmount > 0)
         {
             int32_t crackleMask =
-                2047 - (crackleAmount >> 1);
+                2047 -
+                (crackleAmount >> 1) -
+                (instability >> 2);
 
             if (crackleMask < 15)
             {
@@ -300,7 +332,7 @@ public:
             if ((FastRandom() & crackleMask) == 0)
             {
                 crackleLPFL +=
-                    (((int32_t)(FastRandom() & 255) - 128) << 2);
+                    (((int32_t)(FastRandom() & 255) - 128) << 4);
             }
 
             if ((FastRandom() & crackleMask) == 0)
@@ -314,8 +346,8 @@ public:
         crackleLPFL -= crackleLPFL >> 4;
         crackleLPFR -= crackleLPFR >> 4;
 
-        wetL += (crackleLPFL * crackleAmount) >> 13;
-        wetR += (crackleLPFR * crackleAmount) >> 13;
+        wetL += (crackleLPFL * crackleAmount) >> 11;
+        wetR += (crackleLPFR * crackleAmount) >> 11;
 
         // Protect wet path.
         wetL = SoftClip(wetL);
