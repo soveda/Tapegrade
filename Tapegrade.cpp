@@ -55,6 +55,16 @@ public:
     int32_t toneL = 0;
     int32_t toneR = 0;
 
+    //
+    // Additional DSP state.
+    //
+
+    int32_t crackleLPFL = 0;
+    int32_t crackleLPFR = 0;
+
+    int32_t hissLPFL = 0;
+    int32_t hissLPFR = 0;
+    
     // Cheap xorshift RNG.
     inline uint32_t FastRandom()
     {
@@ -237,44 +247,76 @@ public:
         wetR = toneR;
 
         // Old cassette mode:
-        // subtle hiss only.
+        // subtle filtered hiss.
         if (oldMode)
         {
-            int32_t hissL =
-                ((int32_t)(FastRandom() & 127) - 64) >> 3;
+            // Generate white noise.
+            int32_t noiseL =
+                ((int32_t)(FastRandom() & 127) - 64);
 
-            int32_t hissR =
-                ((int32_t)(FastRandom() & 127) - 64) >> 3;
+            int32_t noiseR =
+                ((int32_t)(FastRandom() & 127) - 64);
+
+            // Low-pass memory for high-pass filter.
+            //
+            // Removes low frequencies from hiss
+            // so noise feels more tape-like.
+            hissLPFL += (noiseL - hissLPFL) >> 4;
+            hissLPFR += (noiseR - hissLPFR) >> 4;
+
+            // High-passed hiss.
+            int32_t hissL = (noiseL - hissLPFL) >> 2;
+            int32_t hissR = (noiseR - hissLPFR) >> 2;
 
             wetL += hissL;
             wetR += hissR;
         }
 
         // Damaged cassette mode:
-        // louder hiss + crackle.
+        // louder hiss + filtered crackle.
         if (damagedMode)
         {
-            int32_t hissL =
-                ((int32_t)(FastRandom() & 255) - 128) >> 2;
+            // Brighter broadband hiss.
+            int32_t noiseL =
+                ((int32_t)(FastRandom() & 255) - 128);
 
-            int32_t hissR =
-                ((int32_t)(FastRandom() & 255) - 128) >> 2;
+            int32_t noiseR =
+                ((int32_t)(FastRandom() & 255) - 128);
+
+            // High-pass shaping for realistic tape hiss.
+            hissLPFL += (noiseL - hissLPFL) >> 4;
+            hissLPFR += (noiseR - hissLPFR) >> 4;
+
+            int32_t hissL = (noiseL - hissLPFL) >> 1;
+            int32_t hissR = (noiseR - hissLPFR) >> 1;
 
             wetL += hissL;
             wetR += hissR;
 
-            // Crackle impulses.
+            // Crackle excitation impulses.
+            //
+            // Instead of single-sample digital clicks,
+            // we excite short decaying bursts.
             if ((FastRandom() & 2047) == 0)
             {
-                wetL +=
-                    (((int32_t)(FastRandom() & 255) - 128) << 1);
+                crackleLPFL +=
+                    (((int32_t)(FastRandom() & 255) - 128) << 2);
             }
 
             if ((FastRandom() & 2047) == 0)
             {
-                wetR +=
-                    (((int32_t)(FastRandom() & 255) - 128) << 1);
+                crackleLPFR +=
+                    (((int32_t)(FastRandom() & 255) - 128) << 2);
             }
+
+            // Low-pass decay filter.
+            //
+            // Produces softer analog-style crackle.
+            crackleLPFL -= crackleLPFL >> 3;
+            crackleLPFR -= crackleLPFR >> 3;
+
+            wetL += crackleLPFL;
+            wetR += crackleLPFR;
         }
 
         // Protect wet path before mixing.
