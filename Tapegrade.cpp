@@ -312,8 +312,8 @@ public:
             // Low-pass decay filter.
             //
             // Produces softer analog-style crackle.
-            crackleLPFL -= crackleLPFL >> 3;
-            crackleLPFR -= crackleLPFR >> 3;
+            crackleLPFL -= crackleLPFL >> 4;
+            crackleLPFR -= crackleLPFR >> 4;
 
             wetL += crackleLPFL >> 1;
             wetR += crackleLPFR >> 1;
