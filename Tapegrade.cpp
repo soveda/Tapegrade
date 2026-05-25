@@ -1,4 +1,3 @@
-```cpp
 //
 //  Tapegrade.cpp
 //
@@ -77,7 +76,15 @@ public:
         rng ^= rng << 5;
         return rng;
     }
-
+    // LED brightness clamping
+    
+    inline uint16_t ClampLED(int32_t x)
+    {
+        if (x < 0) return 0;
+        if (x > 4095) return 4095;
+        return x;
+    }
+    
     // Triangle oscillator.
     inline int32_t Triangle(uint32_t phase)
     {
@@ -158,7 +165,7 @@ public:
         // Audio 2 dynamically morphs tape wear.
         int32_t tapeCV = AudioIn2();
 
-        tapeTypeCV += (tapeCV - tapeTypeCV) >> 7;
+        tapeTypeCV += (tapeCV - tapeTypeCV) >> 8;
 
         // Base tape condition from switch.
         int32_t tapeType = 0;
@@ -194,7 +201,7 @@ public:
         int32_t modeDepth = (depth * depth) >> 12;
 
         // Older tapes become less stable.
-        modeDepth += tapeType >> 3;
+        modeDepth += tapeType >> 4;
 
         // Mono tape input.
         delayBuffer[writePos] = inputL;
@@ -282,16 +289,21 @@ public:
 
         if (crackleAmount > 0)
         {
-            int32_t crackleDensity =
-                4096 - crackleAmount;
+            int32_t crackleMask =
+                2047 - (crackleAmount >> 1);
 
-            if ((FastRandom() & crackleDensity) == 0)
+            if (crackleMask < 15)
+            {
+                crackleMask = 15;
+            }
+
+            if ((FastRandom() & crackleMask) == 0)
             {
                 crackleLPFL +=
                     (((int32_t)(FastRandom() & 255) - 128) << 2);
             }
 
-            if ((FastRandom() & crackleDensity) == 0)
+            if ((FastRandom() & crackleMask) == 0)
             {
                 crackleLPFR +=
                     (((int32_t)(FastRandom() & 255) - 128) << 2);
@@ -306,8 +318,9 @@ public:
         wetR += (crackleLPFR * crackleAmount) >> 13;
 
         // Protect wet path.
-        wetL = Clamp2048(wetL);
-        wetR = Clamp2048(wetR);
+        wetL = SoftClip(wetL);
+        wetR = SoftClip(wetR);
+        
 
         // Wet/dry mix.
         int32_t dryGain = 4095 - mix;
@@ -326,9 +339,9 @@ public:
         AudioOut2(outR);
 
         // LED feedback.
-        LedBrightness(0, (modL + 2048) & 4095);
+        LedBrightness(0, ClampLED(modL + 2048));
         LedBrightness(1, instability);
-        LedBrightness(2, (modR + 2048) & 4095);
+        LedBrightness(2, ClampLED(modR + 2048));
         LedBrightness(3, mix);
         LedBrightness(4, tapeType);
 
