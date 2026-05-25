@@ -177,12 +177,18 @@ public:
                 break;
 
             case Switch::Middle:
-                tapeType = 2048;
+                tapeType = 1400;
                 break;
 
             case Switch::Down:
-                tapeType = 4095;
+                tapeType = 2700;
                 break;
+        }
+        
+        // Pulse1 injects temporary tape damage burst.
+        if (PulseIn1RisingEdge())
+        {
+            tapeTypeCV = 4095;
         }
 
         // Apply Audio2 modulation.
@@ -195,11 +201,11 @@ public:
         //
         // Higher tape wear = darker sound.
         int32_t toneShift =
-            4 + (tapeType >> 10);
+            3 + (tapeType >> 10);
 
         // Nonlinear modulation depth scaling.
         int32_t modeDepth =
-            ((depth * depth) >> 11) + (depth >> 1);
+            (depth * 3) >> 1;
         
         // Older tapes become less stable.
         modeDepth += tapeType >> 4;
@@ -235,8 +241,8 @@ public:
             512 + (instability >> 1);
 
         // Flutter oscillator speed.
-        flutterPhaseL += 2500 + (instability << 2);
-        flutterPhaseR += 2700 + (instability << 2);
+        flutterPhaseL += 2500 + instability;
+        flutterPhaseR += 2700 + instability;
 
         int32_t flutterL = Triangle(flutterPhaseL);
         int32_t flutterR = Triangle(flutterPhaseR);
@@ -257,24 +263,29 @@ public:
 
         // Combined modulation.
         int32_t modL =
-            wowModL + (flutterL << 2);
+            wowModL + (flutterL << 1);
 
         int32_t modR =
-            wowModR + (flutterR << 2);
+            wowModR + (flutterR << 1);
 
         // Final modulation scaling.
-        modL = (modL * modeDepth) >> 12;
-        modR = (modR * modeDepth) >> 12;
+        modL = (modL * modeDepth) >> 13;
+        modR = (modR * modeDepth) >> 13;
+        if (modL > 12000) modL = 12000;
+        if (modL < -12000) modL = -12000;
+
+        if (modR > 12000) modR = 12000;
+        if (modR < -12000) modR = -12000;
 
         // Base tape delay.
         int32_t baseDelay = 1400 << 8;
 
         // Fractional modulated read positions.
         int32_t readL =
-            ((writePos << 8) - baseDelay - (modL << 4));
+            ((writePos << 8) - baseDelay - (modL << 6));
 
         int32_t readR =
-            ((writePos << 8) - baseDelay - (modR << 4));
+            ((writePos << 8) - baseDelay - (modR << 6));
 
         // Interpolated reads.
         int32_t wetL = ReadDelayInterpolated(readL);
@@ -292,13 +303,19 @@ public:
         //
 
         // Hiss amount.
-        int32_t hissAmount = tapeType >> 6;
+        int32_t hissAmount = tapeType >> 8;
 
         // Crackle only appears on heavily damaged tape.
         int32_t crackleAmount =
             (tapeType > 2048)
                 ? (tapeType - 2048)
                 : 0;
+        
+        // Pulse2 forces heavy crackle while high.
+        if (PulseIn2())
+        {
+            crackleAmount = 2048;
+        }
 
         //
         // Tape hiss.
@@ -326,10 +343,8 @@ public:
         if (crackleAmount > 0)
         {
             int32_t crackleMask =
-                2047 -
-                (crackleAmount >> 1) -
-                (instability >> 2);
-
+                2047 - (crackleAmount >> 1);
+            
             if (crackleMask < 15)
             {
                 crackleMask = 15;
@@ -375,6 +390,16 @@ public:
 
         AudioOut1(outL);
         AudioOut2(outR);
+        
+        // CV passthrough with knob attenuation.
+        int32_t cvOut1 =
+            (CVIn1() * KnobVal(Knob::X)) >> 12;
+
+        int32_t cvOut2 =
+            (CVIn2() * KnobVal(Knob::Y)) >> 12;
+
+        CVOut1(cvOut1);
+        CVOut2(cvOut2);
 
         // LED feedback.
         LedBrightness(0, ClampLED(modL + 2048));
