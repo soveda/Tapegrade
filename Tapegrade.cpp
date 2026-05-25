@@ -195,7 +195,7 @@ public:
         //
         // Higher tape wear = darker sound.
         int32_t toneShift =
-            4 + (tapeType >> 11);
+            4 + (tapeType >> 10);
 
         // Nonlinear modulation depth scaling.
         int32_t modeDepth =
@@ -203,6 +203,12 @@ public:
         
         // Older tapes become less stable.
         modeDepth += tapeType >> 4;
+        
+        //clamp modeDepth
+        if (modeDepth > 8192)
+        {
+            modeDepth = 8192;
+        }
 
         // Mono tape input.
         delayBuffer[writePos] = inputL;
@@ -332,7 +338,7 @@ public:
             if ((FastRandom() & crackleMask) == 0)
             {
                 crackleLPFL +=
-                    (((int32_t)(FastRandom() & 255) - 128) << 4);
+                    (((int32_t)(FastRandom() & 255) - 128) << 2);
             }
 
             if ((FastRandom() & crackleMask) == 0)
