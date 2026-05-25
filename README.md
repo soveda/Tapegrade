@@ -17,6 +17,9 @@ Designed for everything from subtle tape movement to heavily damaged cassette so
 * Continuous tape wear morphing
 * CV modulation support
 * Stereo tape movement
+* Pulse-controlled tape damage bursts
+* Rhythmic crackle injection
+* CV passthrough attenuation outputs
 
 ---
 
@@ -48,6 +51,10 @@ Modulates tape depth.
 
 Controls the amount of wow and pitch movement.
 
+Audio rate around C3 encouraged
+
+Also routed to CV Out 1 through the X knob attenuator.
+
 ---
 
 ## CV2
@@ -55,6 +62,58 @@ Controls the amount of wow and pitch movement.
 Modulates instability.
 
 Controls flutter speed and transport agitation.
+
+Audio rate around C3 encouraged
+
+Also routed to CV Out 2 through the Y knob attenuator.
+
+---
+
+## Pulse In 1
+
+Tape damage burst trigger.
+
+Each rising edge briefly forces the tape into a heavily degraded state.
+
+Recommend high rate triggers!
+
+Could be useful for rhythmic tape-drop effects and transient degradation bursts.
+
+---
+
+## Pulse In 2
+
+Crackle gate input.
+
+While high, Pulse In 2 forces strong crackle generation regardless of tape condition.
+
+
+
+---
+
+# Outputs
+
+## Audio Out 1 / 2
+
+Stereo cassette-processed output.
+
+Stereo width is generated internally using decorrelated wow/flutter modulation.
+
+---
+
+## CV Out 1
+
+CV1 passthrough output scaled by the X knob.
+
+Functions as a CV attenuator output.
+
+---
+
+## CV Out 2
+
+CV2 passthrough output scaled by the Y knob.
+
+Functions as a CV attenuator output.
 
 ---
 
@@ -72,6 +131,8 @@ Tape depth.
 
 Higher settings increase cassette wobble and pitch instability.
 
+Also controls attenuation amount for CV Out 1.
+
 ---
 
 ## Y
@@ -79,6 +140,8 @@ Higher settings increase cassette wobble and pitch instability.
 Instability amount.
 
 Higher settings create rougher and faster tape movement.
+
+Also controls attenuation amount for CV Out 2.
 
 ---
 
@@ -107,4 +170,6 @@ Heavy degradation with strong hiss, crackle, and unstable tape behaviour.
 * Mono input only
 * Stereo image is generated internally
 * Audio-rate modulation supported on Audio In 2
+* Pulse inputs can be clocked or triggered rhythmically
+* CV outputs operate independently from the audio path
 * Optimised for Workshop Computer hardware
