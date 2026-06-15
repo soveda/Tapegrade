@@ -1,9 +1,88 @@
-name: Tapegrade
-version: 0.8.0
-creator: Adrian Vos
-WIP but functional
+Description: Mono-to-stereo cassette warble and degradation effect with wow, flutter, hiss, crackle, and tape wear morphing.
+Language: C++ (Pico SDK)
+Creator: Adrian Vos
+Version: 0.8.0
+Status: WIP but functional
+repository: https://github.com/soveda/Tapegrade
+tags:
+  - effect
+  - tape
+  - lo-fi
+  - stereo
+  - degradation
+  - modulation
 
-short_description: >
-  Mono-input stereo cassette warble processor
-  with wow, flutter, hiss, crackle, and tape wear morphing.
+manual: |
+  Tapegrade turns a mono input into a wide stereo cassette texture. Main controls
+  wet/dry mix, X controls tape depth and CV Out 1 attenuation, and Y controls
+  instability and CV Out 2 attenuation. Switch up is Clean, middle is Old, and
+  down is Damaged. Audio In 2 can modulate tape condition, CV In 1 modulates
+  tape depth, CV In 2 modulates instability, Pulse In 1 triggers tape damage
+  bursts, and Pulse In 2 gates stronger crackle.
 
+panel:
+  inputs:
+    - id: AudioIn1
+      name: Audio In 1
+      description: Main mono audio input
+      type: audio
+    - id: AudioIn2
+      name: Audio In 2
+      description: Tape-condition audio/CV modulation
+      type: audio
+    - id: CVIn1
+      name: CV In 1
+      description: Tape depth modulation
+      type: cv
+    - id: CVIn2
+      name: CV In 2
+      description: Instability modulation
+      type: cv
+    - id: PulseIn1
+      name: Pulse In 1
+      description: Tape damage burst trigger
+      type: pulse
+    - id: PulseIn2
+      name: Pulse In 2
+      description: Crackle gate input
+      type: pulse
+  outputs:
+    - id: AudioOut1
+      name: Audio Out 1
+      description: Left cassette-processed output
+      type: audio
+    - id: AudioOut2
+      name: Audio Out 2
+      description: Right cassette-processed output
+      type: audio
+    - id: CVOut1
+      name: CV Out 1
+      description: CV In 1 passthrough scaled by X
+      type: cv
+    - id: CVOut2
+      name: CV Out 2
+      description: CV In 2 passthrough scaled by Y
+      type: cv
+    - id: PulseOut1
+      name: Pulse Out 1
+      description: Pulse output
+      type: pulse
+    - id: PulseOut2
+      name: Pulse Out 2
+      description: Pulse output
+      type: pulse
+
+controls:
+  knobs:
+    - when: { z: up }
+      main: { name: Wet/Dry Mix, description: Blend between dry and tape-processed signal }
+      x: { name: Tape Depth, description: Wow/pitch movement and CV Out 1 attenuation }
+      y: { name: Instability, description: Flutter/transport instability and CV Out 2 attenuation }
+    - when: { z: middle }
+      main: { name: Wet/Dry Mix, description: Blend between dry and tape-processed signal }
+      x: { name: Tape Depth, description: Wow/pitch movement and CV Out 1 attenuation }
+      y: { name: Instability, description: Flutter/transport instability and CV Out 2 attenuation }
+    - when: { z: down }
+      main: { name: Wet/Dry Mix, description: Blend between dry and heavily damaged tape signal }
+      x: { name: Tape Depth, description: Damage depth and CV Out 1 attenuation }
+      y: { name: Instability, description: Damage instability and CV Out 2 attenuation }
